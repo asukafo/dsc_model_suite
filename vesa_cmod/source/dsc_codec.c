@@ -15,7 +15,7 @@
 *
 *  Without limiting the foregoing, you agree that your use
 *  of this software program does not convey any rights to you in any of
-*  Broadcom’s patent and other intellectual property, and you
+*  Broadcomï¿½s patent and other intellectual property, and you
 *  acknowledge that your use of this software may require that
 *  you separately obtain patent or other intellectual property
 *  rights from Broadcom or third parties.
@@ -67,6 +67,11 @@
 #define PRINT_DEBUG_RC    0
 #define PRINT_DEBUG_RECON 0
 int g_verbose;
+
+// DSC trace callback for external performance monitoring
+#ifdef DSC_TRACE
+void (*dsc_group_trace_cb)(void *state, int group_idx, int slice_y);
+#endif
 
 // Prototypes
 int MapQpToQlevel(dsc_cfg_t *dsc_cfg, dsc_state_t *dsc_state, int qp, int CType);
@@ -2750,6 +2755,10 @@ int DSC_Algorithm(int isEncoder, dsc_cfg_t* dsc_cfg, pic_t* ip, pic_t* op, unsig
 
 				// Do rate control
 				RateControl( dsc_cfg, dsc_state, throttle_offset, bpg_offset, group_count, scale, sampModCnt );  // Group is finished
+#ifdef DSC_TRACE
+					if (dsc_group_trace_cb)
+						dsc_group_trace_cb((void*)dsc_state, group_count, vPos);
+#endif
 				new_quant = dsc_state->stQp;
 
 				if (dsc_state->bufferFullness < 0)
