@@ -1,11 +1,15 @@
-// DSC SystemC — Stage 0: FETCH (reads original pixels from test image)
 #include "fetch.h"
-extern "C" {
-#include "vdo.h"
+
+Fetch::Fetch(sc_module_name nm)
+    : sc_module(nm), cfg(nullptr), lbuf(nullptr), src_img(nullptr),
+      hPos(0), vPos(0), groupCount(0), xstart(0)
+{
+    SC_THREAD(process);
+    sensitive << clk.pos();
+    reset_signal_is(rst, true);
 }
 
 void Fetch::process() {
-    hPos = 0; vPos = 0; groupCount = 0;
     GroupInput gi;
     wait();
 
@@ -21,7 +25,6 @@ void Fetch::process() {
         gi.native420  = cfg->native_420;
         gi.native422  = cfg->native_422;
 
-        // Read original pixels from source image for current vPos
         int px = hPos;
         for (int p = 0; p < 3 && (px + p) < cfg->slice_width; p++) {
             for (int c = 0; c < 3; c++) {
@@ -39,17 +42,10 @@ void Fetch::process() {
             }
         }
 
-        // Read prevLine samples for prediction (5 pixels: a,b,c,d,e around hPos)
-        for (int c = 0; c < 3; c++) {
-            for (int i = 0; i < 8; i++) {
-                if (lbuf && !gi.firstLine) {
-                    gi.prevLine[c][i] = lbuf->read_prev(c, hPos - 3 + i);
-                } else {
-                    gi.prevLine[c][i] = 128; // mid-gray for first line
-                }
-            }
-        }
-        gi.prevLinePred = 0;
+        int def_v = 1 << (cfg->bits_per_component - 1);
+        for (int c = 0; c < 3; c++)
+            for (int i = 0; i < 8; i++)
+                gi.prevLine[c][i] = def_v;
 
         wait(3);
         timer.add_busy(3);
@@ -61,8 +57,6 @@ void Fetch::process() {
         hPos += 3; groupCount++;
         if (hPos >= cfg->slice_width) {
             hPos = 0; vPos++; groupCount = 0;
-
-            // Line buffer swap: currLine → prevLine
             if (lbuf) {
                 lbuf->swap_curr_to_prev(vPos - 1);
                 lbuf->dump_stats();

@@ -1,100 +1,53 @@
-# DSC Self-Contained Verification Testbench
-# Links C reference model objects into SystemC binary for inline comparison.
+# DSC SystemC Performance Model — Fully Self-Contained
+# Algorithm code is embedded directly in SC_MODULE .cpp files via common/dsc_algo.h.
+# Only external dependency: SystemC 2.3.4
 
 SYSTEMC_HOME = $(HOME)/opt/systemc-2.3.4
 SYSTEMC_INC  = $(SYSTEMC_HOME)/include
 SYSTEMC_LIB  = $(SYSTEMC_HOME)/lib
 
-SRCDIR  = ../vesa_cmod/source
-TBDIR   = ../tb
-
-CC      = gcc
-CXX     = g++
-CFLAGS  = -std=gnu99 -O2 -Wall -D_FILE_OFFSET_BITS=64 -DDSC_TRACE
+CXX      = g++
 CXXFLAGS = -std=c++17 -O2 -Wall
-INCPATH  = -I$(SYSTEMC_INC) -I./common -I./modules -I$(SRCDIR) -I$(TBDIR)
+INCPATH  = -I$(SYSTEMC_INC) -I./common -I./modules
 LDFLAGS  = -L$(SYSTEMC_LIB) -lsystemc -lm
 
-# ---- C model objects (compiled as C) ----
-C_OBJS  = dsc_codec.o dsc_utils.o utl.o fifo.o multiplex.o logging.o
+# ---- SystemC pipeline modules ----
+SC_SRCS  = modules/fetch.cpp modules/predict.cpp modules/encode.cpp
+SC_SRCS += modules/mux.cpp modules/rate_ctl.cpp modules/line_buffer.cpp
+SC_SRCS += modules/slice_pipeline.cpp
 
-# ---- TB C objects ----
-TB_OBJS = test_pattern.o dsc_config.o perf_log.o c_tracer.o c_model_api.o
+SC_OBJS  = $(SC_SRCS:.cpp=.o)
 
-# ---- SystemC C++ objects ----
-SC_OBJS = fetch.o predict.o encode.o mux.o rate_ctl.o line_buffer.o slice_pipeline.o
+# ---- Standalone pipeline (no C model dependency) ----
+TARGET = dsc_perf
 
-# ---- Top-level ----
-TARGET = dsc_verify
-
-.PHONY: all clean
+.PHONY: all clean verify
 
 all: $(TARGET)
 
-$(TARGET): sc_main.o $(C_OBJS) $(TB_OBJS) $(SC_OBJS)
+$(TARGET): sc_main.o $(SC_OBJS)
 	$(CXX) -o $@ $^ $(LDFLAGS)
 
-# ---- Top-level (C++) ----
 sc_main.o: sc_main.cpp common/perf_counters.h common/dsc_config.h common/dsc_state.h
 	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
 
-# ---- SystemC modules (C++) ----
-fetch.o: modules/fetch.cpp modules/fetch.h modules/line_buffer.h
+modules/%.o: modules/%.cpp
 	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
 
-predict.o: modules/predict.cpp modules/predict.h modules/line_buffer.h
-	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
+# ---- Optional: verification binary (links C model from tb/) ----
+# Requires tb/ built first: cd ../tb && make
+verify: sc_main_verify.o $(SC_OBJS) ../tb/dsc_codec.o ../tb/dsc_utils.o ../tb/utl.o ../tb/fifo.o ../tb/multiplex.o ../tb/logging.o ../tb/test_pattern.o ../tb/tb_config.o ../tb/c_tracer.o ../tb/perf_log.o
+	$(CXX) -o dsc_verify $^ $(LDFLAGS)
 
-encode.o: modules/encode.cpp modules/encode.h
-	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
+sc_main_verify.o: sc_main.cpp
+	$(CXX) $(CXXFLAGS) -DDSC_VERIFY $(INCPATH) -I../tb -c $< -o $@
 
-mux.o: modules/mux.cpp modules/mux.h
-	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
+../tb/%.o: ../tb/%.c
+	gcc -std=gnu99 -O2 -Wall -D_FILE_OFFSET_BITS=64 -DDSC_TRACE $(INCPATH) -I../tb -c $< -o $@
 
-rate_ctl.o: modules/rate_ctl.cpp modules/rate_ctl.h common/perf_counters.h
-	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
+# Special: dsc_codec.o needs main() renamed
+../tb/dsc_codec.o: ../tb/../vesa_cmod/source/dsc_codec.c
+	gcc -std=gnu99 -O2 -Wall -D_FILE_OFFSET_BITS=64 -DDSC_TRACE -Dmain=dsc_disabled $(INCPATH) -I../tb -c $< -o $@
 
-line_buffer.o: modules/line_buffer.cpp modules/line_buffer.h
-	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
-
-slice_pipeline.o: modules/slice_pipeline.cpp modules/slice_pipeline.h
-	$(CXX) $(CXXFLAGS) $(INCPATH) -c $< -o $@
-
-# ---- C model (compiled as C) ----
-dsc_codec.o: $(SRCDIR)/dsc_codec.c
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-dsc_utils.o: $(SRCDIR)/dsc_utils.c
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-utl.o: $(SRCDIR)/utl.c
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-fifo.o: $(SRCDIR)/fifo.c
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-multiplex.o: $(SRCDIR)/multiplex.c
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-logging.o: $(SRCDIR)/logging.c
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-# ---- TB C objects ----
-test_pattern.o: $(TBDIR)/test_pattern.c $(TBDIR)/test_pattern.h
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-dsc_config.o: $(TBDIR)/dsc_config.c $(TBDIR)/dsc_config.h
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-perf_log.o: $(TBDIR)/perf_log.c $(TBDIR)/dsc_tb.h
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-c_tracer.o: $(TBDIR)/c_tracer.c $(TBDIR)/c_tracer.h
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-c_model_api.o: $(TBDIR)/c_model_api.c $(TBDIR)/c_model_api.h
-	$(CC) $(CFLAGS) $(INCPATH) -c $< -o $@
-
-# ---- Cleanup ----
 clean:
-	rm -f *.o $(TARGET) traces/*.csv
+	rm -f *.o modules/*.o $(TARGET) dsc_verify traces/*.csv
