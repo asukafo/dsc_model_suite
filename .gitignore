@@ -1,9 +1,12 @@
 *.pdf
 *.o
+*.o.tmp
 dsc_tb
 dsc_tb_trace
 dsc_verify
+dsc_perf
 .DS_Store
+.claude/
 perf_model/traces/
 tb/results/
 __pycache__/
